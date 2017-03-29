@@ -20,14 +20,13 @@ namespace Akka.Wamp.Actors
         /// <summary>
         ///     WAMP hosts, keyed by end-point URI.
         /// </summary>
-        readonly Dictionary<Uri, WampServer> _hosts = new Dictionary<Uri, WampServer>();
+        readonly Dictionary<Uri, WampRouter> _hosts = new Dictionary<Uri, WampRouter>();
 
         /// <summary>
         ///     Create a new <see cref="WampManager"/> actor.
         /// </summary>
         public WampManager()
         {
-            
         }
     }
 }
