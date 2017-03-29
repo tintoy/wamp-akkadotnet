@@ -63,7 +63,9 @@ namespace Akka.Wamp.Server
         {
             return new WebHostBuilder()
                 .UseUrls(
-                    BaseAddress.ToString().Replace("localhost", "+")
+                    BaseAddress
+                        .GetComponents(UriComponents.SchemeAndServer, UriFormat.Unescaped)
+                        .Replace("localhost", "+")
                 )
                 .Configure(app =>
                 {
