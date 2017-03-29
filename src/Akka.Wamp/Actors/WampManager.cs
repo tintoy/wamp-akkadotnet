@@ -5,7 +5,6 @@ using System.Collections.Generic;
 namespace Akka.Wamp.Actors
 {
     using Messages;
-    using Server;
 
     /// <summary>
     ///     The top-level management actor for WAMP functionality.
@@ -34,8 +33,9 @@ namespace Akka.Wamp.Actors
                 if (!_routerManagers.TryGetValue(create.BaseAddress, out routerManager))
                 {
                     routerManager = Context.ActorOf(
-                        Props.Create<WampRouterManager>()
+                        Props.Create<WampServerManager>()
                     );
+                    _routerManagers.Add(create.BaseAddress, routerManager);
                 }
 
                 Sender.Tell(

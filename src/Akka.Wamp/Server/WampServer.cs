@@ -10,16 +10,16 @@ using WampSharp.V2.Realm;
 namespace Akka.Wamp.Server
 {
     /// <summary>
-    ///     A WAMP router (based on ASP.NET Core).
+    ///     A WAMP server (based on ASP.NET Core).
     /// </summary>
     /// <remarks>
     ///     This ugly workaround is required, for now, in order to support .NET Core (WampSharp.Default is missing a WebSockets server for Core unless you're using ASP.NET Core).
     /// </remarks>
-    sealed class WampRouter
+    sealed class WampServer
         : IDisposable
     {
         /// <summary>
-        ///     Has the <see cref="WampRouter"/> been disposed?
+        ///     Has the <see cref="WampServer"/> been disposed?
         /// </summary>
         bool _isDisposed;
 
@@ -29,7 +29,7 @@ namespace Akka.Wamp.Server
         /// <param name="baseAddress">
         ///     The server base address.
         /// </param>
-        public WampRouter(Uri baseAddress)
+        public WampServer(Uri baseAddress)
         {
             if (baseAddress == null)
                 throw new ArgumentNullException(nameof(baseAddress));
@@ -38,7 +38,7 @@ namespace Akka.Wamp.Server
         }
 
         /// <summary>
-        ///     Dispose of resources being used by the <see cref="WampRouter"/>.
+        ///     Dispose of resources being used by the <see cref="WampServer"/>.
         /// </summary>
         public void Dispose()
         {
@@ -52,12 +52,12 @@ namespace Akka.Wamp.Server
         }
 
         /// <summary>
-        ///     Check if the <see cref="WampRouter"/> has been disposed.
+        ///     Check if the <see cref="WampServer"/> has been disposed.
         /// </summary>
         void CheckDisposed()
         {
             if (_isDisposed)
-                throw new ObjectDisposedException(nameof(WampRouter));
+                throw new ObjectDisposedException(nameof(WampServer));
         }
 
         /// <summary>
@@ -76,17 +76,17 @@ namespace Akka.Wamp.Server
         IWebHost WebHost { get; set; }
 
         /// <summary>
-        ///     Is the WAMP router running?
+        ///     Is the WAMP server running?
         /// </summary>
         public bool IsRunning => WampHost != null && WebHost != null;
 
         /// <summary>
-        ///     Start the WAMP router.
+        ///     Start the WAMP server.
         /// </summary>
         public void Start()
         {
             if (IsRunning)
-                throw new InvalidOperationException("The WAMP router is already running.");
+                throw new InvalidOperationException("The WAMP server is already running.");
 
             WampHost = new WampHost();
             WebHost = CreateWebHost(WampHost);
@@ -96,12 +96,12 @@ namespace Akka.Wamp.Server
         }
 
         /// <summary>
-        ///     Stop the WAMP router.
+        ///     Stop the WAMP server.
         /// </summary>
         public void Stop()
         {
             if (!IsRunning)
-                throw new InvalidOperationException("The WAMP router is not running.");
+                throw new InvalidOperationException("The WAMP server is not running.");
 
             if (WampHost != null)
             {
@@ -137,12 +137,12 @@ namespace Akka.Wamp.Server
         }
 
         /// <summary>
-        ///     Ensure that the WAMP router is running.
+        ///     Ensure that the WAMP server is running.
         /// </summary>
         void EnsureRunning()
         {
             if (!IsRunning)
-                throw new InvalidOperationException("The WAMP router is not running.");
+                throw new InvalidOperationException("The WAMP server is not running.");
         }
 
         /// <summary>
