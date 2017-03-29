@@ -4,6 +4,7 @@ using System.Collections.Generic;
 
 namespace Akka.Wamp.Actors
 {
+    using Messages;
     using Server;
 
     /// <summary>
@@ -20,13 +21,27 @@ namespace Akka.Wamp.Actors
         /// <summary>
         ///     WAMP hosts, keyed by end-point URI.
         /// </summary>
-        readonly Dictionary<Uri, WampRouter> _hosts = new Dictionary<Uri, WampRouter>();
+        readonly Dictionary<Uri, IActorRef> _routerManagers = new Dictionary<Uri, IActorRef>();
 
         /// <summary>
         ///     Create a new <see cref="WampManager"/> actor.
         /// </summary>
         public WampManager()
         {
+            Receive<CreateWampRouter>(create =>
+            {
+                IActorRef routerManager;
+                if (!_routerManagers.TryGetValue(create.BaseAddress, out routerManager))
+                {
+                    routerManager = Context.ActorOf(
+                        Props.Create<WampRouterManager>()
+                    );
+                }
+
+                Sender.Tell(
+                    new WampRouterCreated(routerManager)
+                );
+            });
         }
     }
 }
