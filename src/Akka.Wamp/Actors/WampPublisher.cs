@@ -1,5 +1,4 @@
 using Akka.Actor;
-using Akka.Event;
 using System;
 using WampSharp.V2;
 
@@ -11,13 +10,8 @@ namespace Akka.Wamp.Actors
     ///     Actor that publishes to a specific WAMP topic.
     /// </summary>
     class WampPublisher
-        : ReceiveActor
+        : WampOwnedComponentActor
     {
-        /// <summary>
-        ///     The default period of time that the owner has to activate the subscription.
-        /// </summary>
-        public static readonly TimeSpan DefaultActivationTimeout = TimeSpan.FromSeconds(5);
-
         /// <summary>
         ///     The sink for events to publish.
         /// </summary>
@@ -27,11 +21,6 @@ namespace Akka.Wamp.Actors
         ///     The name of the topic to which events will be published.
         /// </summary>
         readonly string                 _topicName;
-
-        /// <summary>
-        ///     The actor that owns the subscriber.
-        /// </summary>
-        readonly IActorRef              _owner;
 
         /// <summary>
         ///     Cancellation for the activation timeout message.
@@ -51,6 +40,7 @@ namespace Akka.Wamp.Actors
         ///     The actor that owns the subscriber.
         /// </param>
         public WampPublisher(IObserver<IWampEvent> eventSink, string topicName, IActorRef owner)
+            : base(owner)
         {
             if (eventSink == null)
                 throw new ArgumentNullException(nameof(eventSink));
@@ -58,64 +48,31 @@ namespace Akka.Wamp.Actors
             if (String.IsNullOrWhiteSpace(topicName))
                 throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'topicName'.", nameof(topicName));
 
-            if (owner == null)
-                throw new ArgumentNullException(nameof(owner));
-            
             _eventSink = eventSink;
             _topicName = topicName;
-            _owner = owner;
+
+            Become(WaitingForActivation);
         }
 
         /// <summary>
-        ///     The logging facility.
+        ///     Behaviour for when the publisher is active.
         /// </summary>
-        ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
-
-        /// <summary>
-        ///     Behaviour when the publisher is waiting for the owner to activate it.
-        /// </summary>
-        /// <remarks>
-        ///     If the owner does not activate the publisher within the timeout period, the actor will be stopped.
-        /// </remarks>
-        void WaitingForActivation()
-        {
-            Log.Debug("Publisher created, waiting {0} for activation from owner '{1]'.",
-                DefaultActivationTimeout, _owner
-            );
-
-            _activationTimeout = Context.ScheduleSelfMessageCancelable(
-                delay: DefaultActivationTimeout,
-                message: ActivationTimeout.Instance
-            );
-            Receive<ActivationTimeout>(_ =>
-            {
-                Log.Debug("Publisher timed out after waiting {0} for activation.",
-                    DefaultActivationTimeout
-                );
-
-                Context.Stop(Self);
-            });
-
-            Receive((Wamp.Activate _) =>
-            {
-                Become(this.Active);
-            });
-        }
-
-        /// <summary>
-        ///     Behaviour when the publisher is active.
-        /// </summary>
-        void Active()
+        protected override void Active()
         {
             Log.Debug("Publisher activated (events will be published to topic '{0}').", _topicName);
 
             Receive<PublishWampEvent>(publish =>
             {
-                // TODO: Notify owner if this fails.
-
-                _eventSink.OnNext(
-                    publish.ToWampEvent()
-                );
+                try
+                {
+                    _eventSink.OnNext(
+                        publish.ToWampEvent()
+                    );
+                }
+                catch (Exception ePublishEvent)
+                {
+                    NotifyError(ePublishEvent, WampOperation.SendEvent, "Failed to publish WAMP event.");
+                }
             });
         }
 

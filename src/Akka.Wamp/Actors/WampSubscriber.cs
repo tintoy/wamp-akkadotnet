@@ -15,42 +15,32 @@ namespace Akka.Wamp.Actors
     ///     TODO: Add logging.
     /// </remarks>
     class WampSubscriber
-        : ReceiveActor
+        : WampOwnedComponentActor
     {
-        /// <summary>
-        ///     The default period of time that the owner has to activate the subscription.
-        /// </summary>
-        public static readonly TimeSpan DefaultActivationTimeout = TimeSpan.FromSeconds(5);
-
         /// <summary>
         ///     The sequence of WAMP events to monitor.
         /// </summary>
-        readonly IObservable<IWampSerializedEvent>    _eventSource;
+        readonly IObservable<IWampSerializedEvent>  _eventSource;
 
         /// <summary>
         ///     The name of the topic that the subscription applies to.
         /// </summary>
-        readonly string                     _topicName;
-
-        /// <summary>
-        ///     The actor that owns the subscription.
-        /// </summary>
-        readonly IActorRef                  _owner;
+        readonly string                             _topicName;
 
         /// <summary>
         ///     The types of arguments expected in event messages.
         /// </summary>
-        readonly ImmutableList<Type>        _argumentTypes;
+        readonly ImmutableList<Type>                _argumentTypes;
 
         /// <summary>
         ///     Cancellation for the activation timeout message.
         /// </summary>
-        ICancelable                         _activationTimeout;
+        ICancelable                                 _activationTimeout;
 
         /// <summary>
         ///     An <see cref="IDisposable"/> representing the subscription.
         /// </summary>
-        IDisposable                         _subscription;
+        IDisposable                                 _subscription;
 
         /// <summary>
         ///     Create a new <see cref="WampSubscriber"/> actor.
@@ -68,6 +58,7 @@ namespace Akka.Wamp.Actors
         ///     The types of arguments expected in event messages.
         /// </param>
         public WampSubscriber(IObservable<IWampSerializedEvent> eventSource, string topicName, IActorRef owner, ImmutableList<Type> argumentTypes)
+            : base(owner)
         {
             if (eventSource == null)
                 throw new ArgumentNullException(nameof(eventSource));
@@ -75,82 +66,21 @@ namespace Akka.Wamp.Actors
             if (String.IsNullOrWhiteSpace(topicName))
                 throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'topicName'.", nameof(topicName));
 
-            if (owner == null)
-                throw new ArgumentNullException(nameof(owner));
-
             _eventSource = eventSource;
             _topicName = topicName;
-            _owner = owner;
             _argumentTypes = argumentTypes;
 
             Become(WaitingForActivation);
         }
 
         /// <summary>
-        ///     The logging facility.
-        /// </summary>
-        ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
-
-        /// <summary>
-        ///     Behaviour when the actor is waiting for the owner to activate it.
-        /// </summary>
-        /// <remarks>
-        ///     If the owner does not activate the subscriber within the timeout period, the actor will be stopped.
-        /// </remarks>
-        void WaitingForActivation()
-        {
-            Log.Debug("Subscriber created, waiting {0} for activation from owner '{1]'.",
-                DefaultActivationTimeout, _owner
-            );
-
-            _activationTimeout = Context.ScheduleSelfMessageCancelable(
-                delay: DefaultActivationTimeout,
-                message: ActivationTimeout.Instance
-            );
-            Receive<ActivationTimeout>(_ =>
-            {
-                Log.Debug("Subscriber timed out after waiting {0} for activation.",
-                    DefaultActivationTimeout
-                );
-
-                Context.Stop(Self);
-            });
-
-            Receive<Activate>(_ =>
-            {
-                Become(this.Active);
-            });
-        }
-
-        /// <summary>
         ///     Behaviour when the subscription is active.
         /// </summary>
-        void Active()
+        protected override void Active()
         {
             Log.Debug("Subscriber activated.");
 
-            if (_activationTimeout != null)
-            {
-                _activationTimeout.Cancel();
-                _activationTimeout = null;
-            }
-
-            _subscription = _eventSource.Subscribe(wampEvent =>
-            {
-                // TODO: Notify owner if this fails.
-
-                object[] arguments = new object[_argumentTypes.Count];
-                for (int index = 0; index < arguments.Length; index++)
-                {
-                    arguments[0] = wampEvent.Arguments[index].Deserialize(
-                        type: _argumentTypes[index]
-                    );
-                }
-
-                _owner.Tell(
-                    new ReceivedWampEvent(arguments)
-                );
-            });
+            _subscription = _eventSource.Subscribe(ProcessWampEvent);
 
             Receive<Unsubscribe>(_ =>
             {
@@ -173,6 +103,58 @@ namespace Akka.Wamp.Actors
                 _subscription.Dispose();
                 _subscription = null;
             }
+        }
+
+        /// <summary>
+        ///     Process an incoming WAMP event.
+        /// </summary>
+        /// <param name="wampEvent">
+        ///     The serialised WAMP event data.
+        /// </param>
+        void ProcessWampEvent(IWampSerializedEvent wampEvent)
+        {
+            if (wampEvent == null)
+                throw new ArgumentNullException(nameof(wampEvent));
+            
+            ReceivedWampEvent notification;
+            try
+            {
+                object[] arguments = DeserializeEventArguments(wampEvent);
+                notification = new ReceivedWampEvent(arguments);
+            }
+            catch (Exception eDeserialiseWampEvent)
+            {
+                NotifyError(eDeserialiseWampEvent, WampOperation.ReceiveEvent, "Failed to deserialise WAMP event.");
+
+                return;
+            }
+            
+            Owner.Tell(notification);
+        }
+
+        /// <summary>
+        ///     Deserialise the ordinal arguments for the specified WAMP event.
+        /// </summary>
+        /// <param name="wampEvent">
+        ///     The serialised WAMP event.
+        /// </param>
+        /// <returns>
+        ///     An array of event arguments.
+        /// </returns>
+        object[] DeserializeEventArguments(IWampSerializedEvent wampEvent)
+        {
+            if (wampEvent == null)
+                throw new ArgumentNullException(nameof(wampEvent));
+            
+            object[] arguments = new object[_argumentTypes.Count];
+            for (int index = 0; index < arguments.Length; index++)
+            {
+                arguments[0] = wampEvent.Arguments[index].Deserialize(
+                    type: _argumentTypes[index]
+                );
+            }
+
+            return arguments;
         }
 
         /// <summary>
