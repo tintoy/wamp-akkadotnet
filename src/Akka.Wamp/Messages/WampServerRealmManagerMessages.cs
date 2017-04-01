@@ -10,10 +10,14 @@ namespace Akka.Wamp.Messages
     ///     Request to the <see cref="WampServerRealmManager"/> actor for creation of a subscription to a topic.
     /// </summary>
     class CreateSubscription
+        : WampRealmCommand
     {
         /// <summary>
         ///     Create a new <see cref="CreateSubscription"/> message.
         /// </summary>
+        /// <param name="realmName">
+        ///     The name of the WAMP realm where the subscription will be hosted.
+        /// </param>
         /// <param name="topicName">
         ///     The name of the WAMP topic to which the subscription will apply.
         /// </param>
@@ -23,7 +27,8 @@ namespace Akka.Wamp.Messages
         /// <param name="argumentTypes">
         ///     The types of arguments expected in each message.
         /// </param>
-        public CreateSubscription(string topicName, IActorRef owner, params Type[] argumentTypes)
+        public CreateSubscription(string realmName, string topicName, IActorRef owner, params Type[] argumentTypes)
+            : base(realmName)
         {
             if (String.IsNullOrWhiteSpace(topicName))
                 throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'topicName'.", nameof(topicName));

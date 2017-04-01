@@ -1,11 +1,11 @@
 using Akka.Actor;
 using Akka.Event;
 using System;
+using System.Collections.Immutable;
 using WampSharp.V2;
 
 namespace Akka.Wamp.Actors
 {
-    using System.Collections.Immutable;
     using Messages;
 
     /// <summary>
@@ -43,7 +43,7 @@ namespace Akka.Wamp.Actors
         readonly ImmutableList<Type>        _argumentTypes;
 
         /// <summary>
-        ///     Cancellation for the subscription-activation timeout message.
+        ///     Cancellation for the activation timeout message.
         /// </summary>
         ICancelable                         _activationTimeout;
 
@@ -83,7 +83,7 @@ namespace Akka.Wamp.Actors
             _owner = owner;
             _argumentTypes = argumentTypes;
 
-            Become(WaitingForOwner);
+            Become(WaitingForActivation);
         }
 
         /// <summary>
@@ -92,12 +92,12 @@ namespace Akka.Wamp.Actors
         ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
 
         /// <summary>
-        ///     Behaviour when the actor is waiting for the owner to activate the subscription.
+        ///     Behaviour when the actor is waiting for the owner to activate it.
         /// </summary>
         /// <remarks>
-        ///     If the owner does not activate the subscription within the timeout period, the actor will be stopped.
+        ///     If the owner does not activate the subscriber within the timeout period, the actor will be stopped.
         /// </remarks>
-        void WaitingForOwner()
+        void WaitingForActivation()
         {
             Log.Debug("Subscriber created, waiting {0} for activation from owner '{1]'.",
                 DefaultActivationTimeout, _owner
@@ -105,9 +105,9 @@ namespace Akka.Wamp.Actors
 
             _activationTimeout = Context.ScheduleSelfMessageCancelable(
                 delay: DefaultActivationTimeout,
-                message: SubscriptionActivationTimeout.Instance
+                message: ActivationTimeout.Instance
             );
-            Receive<SubscriptionActivationTimeout>(_ =>
+            Receive<ActivationTimeout>(_ =>
             {
                 Log.Debug("Subscriber timed out after waiting {0} for activation.",
                     DefaultActivationTimeout
@@ -116,9 +116,9 @@ namespace Akka.Wamp.Actors
                 Context.Stop(Self);
             });
 
-            Receive<ActivateSubscription>(_ =>
+            Receive<Activate>(_ =>
             {
-                Become(Active);
+                Become(this.Active);
             });
         }
 
@@ -137,7 +137,8 @@ namespace Akka.Wamp.Actors
 
             _subscription = _eventSource.Subscribe(wampEvent =>
             {
-                // TODO: Catch deserialisation exception(s) then log and forward to subscriber.
+                // TODO: Notify owner if this fails.
+
                 object[] arguments = new object[_argumentTypes.Count];
                 for (int index = 0; index < arguments.Length; index++)
                 {
@@ -147,13 +148,16 @@ namespace Akka.Wamp.Actors
                 }
 
                 _owner.Tell(
-                    new Received(arguments)
+                    new ReceivedWampEvent(arguments)
                 );
             });
 
             Receive<Unsubscribe>(_ =>
             {
-                Log.Debug("Subscription terminated by '{0}'.", Sender.Path);
+                if (!Sender.IsNobody())
+                    Log.Debug("Subscription terminated by '{0}'.", Sender.Path);
+                else
+                    Log.Debug("Subscription terminated.");
 
                 Context.Stop(Self);
             });
@@ -191,7 +195,9 @@ namespace Akka.Wamp.Actors
         /// </returns>
         public static Props Create(IObservable<IWampSerializedEvent> eventSource, string topicName, IActorRef owner, ImmutableList<Type> argumentTypes)
         {
-            return Props.Create<WampSubscriber>(eventSource, topicName, owner, argumentTypes);
+            return Props.Create(
+                () => new WampSubscriber(eventSource, topicName, owner, argumentTypes)
+            );
         }
     }
 }

@@ -1,11 +1,13 @@
 using Akka.Actor;
+using Akka.Event;
 using System;
 using System.Collections.Generic;
+using WampSharp.V2.Realm;
 
 namespace Akka.Wamp.Actors
 {
+    using Messages;
     using Server;
-    using WampSharp.V2.Realm;
 
     /// <summary>
     ///     Actor that manages a WAMP server.
@@ -30,6 +32,74 @@ namespace Akka.Wamp.Actors
             Become(Stopped);
         }
 
+        /// <summary>
+        ///     The logging facility.
+        /// </summary>
+        ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
+
+        /// <summary>
+        ///     Behaviour for when the server is running.
+        /// </summary>
+        void Running()
+        {
+            Receive<GetRealm>(getRealm =>
+            {
+                IActorRef realmManager = GetOrCreateRealm(getRealm.Realm);
+
+                Sender.Tell(
+                    new Realm(getRealm.Realm, realmManager)
+                );
+            });
+
+            // Forward all realm-related commands to the management actor for the target realm.
+            Receive<WampRealmCommand>(command =>
+            {
+                IActorRef realmManager = GetOrCreateRealm(command.RealmName);
+                realmManager.Forward(command);
+            });
+
+            Receive<Stop>(stop =>
+            {
+                try
+                {
+                    if (_server.IsRunning)
+                        _server.Stop();
+                }
+                catch (Exception eStartServer)
+                {
+                    Sender.Tell(new Failure
+                    {
+                        // TODO: Custom exception type.
+                        Exception = new InvalidOperationException(
+                            $"Failed to start WAMP server listening on '{_baseUri}'.",
+                            innerException: eStartServer
+                        )
+                    });
+
+                    return;
+                }
+
+                Sender.Tell(
+                    new Status.Success(null)
+                );
+
+                Become(Stopped);
+            });
+
+            Receive<Start>(start =>
+            {
+                Sender.Tell(new Failure
+                {
+                    Exception = new InvalidOperationException(
+                        $"WAMP server is already running."
+                    )
+                });
+            });
+        }
+
+        /// <summary>
+        ///     Behaviour for when the server is stopped.
+        /// </summary>
         void Stopped()
         {
             Receive<Start>(start =>
@@ -52,6 +122,10 @@ namespace Akka.Wamp.Actors
                     return;
                 }
 
+                Sender.Tell(
+                    new Status.Success(null)
+                );
+
                 Become(Running);
             });
 
@@ -72,61 +146,6 @@ namespace Akka.Wamp.Actors
             });
         }
 
-        void Running()
-        {
-            Receive<Stop>(stop =>
-            {
-                try
-                {
-                    if (_server.IsRunning)
-                        _server.Stop();
-                }
-                catch (Exception eStartServer)
-                {
-                    Sender.Tell(new Failure
-                    {
-                        // TODO: Custom exception type.
-                        Exception = new InvalidOperationException(
-                            $"Failed to start WAMP server listening on '{_baseUri}'.",
-                            innerException: eStartServer
-                        )
-                    });
-
-                    return;
-                }
-
-                Become(Stopped);
-            });
-
-            Receive<GetRealm>(getRealm =>
-            {
-                IActorRef realmManager;
-                if (!_realmManagers.TryGetValue(getRealm.Name, out realmManager))
-                {
-                    IWampHostedRealm realm = _server.GetRealm(getRealm.Name);
-                    realmManager = Context.ActorOf(
-                        Props.Create<WampServerRealmManager>(realm),
-                        name: $"realm-{getRealm.Name}" // TODO: Ensure name contains only safe characters
-                    );
-                    _realmManagers.Add(getRealm.Name, realmManager);
-                }
-
-                Sender.Tell(
-                    new Realm(realmManager)
-                );
-            });
-
-            Receive<Start>(start =>
-            {
-                Sender.Tell(new Failure
-                {
-                    Exception = new InvalidOperationException(
-                        $"WAMP server is already running."
-                    )
-                });
-            });
-        }
-
         protected override void PostStop()
         {
             if (_server != null)
@@ -136,47 +155,93 @@ namespace Akka.Wamp.Actors
             }
         }
 
-        public class Start
+        /// <summary>
+        ///     Get or create the management actor for the specified WAMP realm.
+        /// </summary>
+        /// <param name="name">
+        ///     The name of the target WAMP realm.
+        /// </param>
+        /// <returns>
+        ///     An <see cref="IActorRef"/> representing the realm's top-level management actor.
+        /// </returns>
+        IActorRef GetOrCreateRealm(string name)
         {
-            public static readonly Start Instance = new Start();
+            if (String.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'name'.", nameof(name));
 
-            Start()
+            IActorRef realmManager;
+            if (!_realmManagers.TryGetValue(name, out realmManager))
             {
+                IWampHostedRealm realm = _server.GetRealm(name);
+                realmManager = Context.ActorOf(
+                    Props.Create<WampServerRealmManager>(realm),
+                    name: $"realm-{name}" // TODO: Ensure name contains only safe characters
+                );
+                _realmManagers.Add(name, realmManager);
             }
+
+            return realmManager;
         }
 
-        public class Stop
-        {
-            public static readonly Stop Instance = new Stop();
-
-            Stop()
-            {
-            }
-        }
-
+        /// <summary>
+        ///     Request the management actor for a WAMP realm.
+        /// </summary>
         public class GetRealm
         {
+            /// <summary>
+            ///     Create a new <see cref="GetRealm"/> message.
+            /// </summary>
+            /// <param name="name">
+            ///     The name of the target WAMP realm.
+            /// </param>
             public GetRealm(string name)
             {
                 if (String.IsNullOrWhiteSpace(name))
                     throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'name'.", nameof(name));
                 
-                Name = name;
+                Realm = name;
             }
 
-            public string Name { get; }
+            /// <summary>
+            ///     The name of the target WAMP realm.
+            /// </summary>
+            public string Realm { get; }
         }
 
+        /// <summary>
+        ///     The management actor for a WAMP realm.
+        /// </summary>
         public class Realm
         {
-            public Realm(IActorRef manager)
+            /// <summary>
+            ///     Create a new <see cref="Realm"/> message.
+            /// </summary>
+            /// <param name="name">
+            ///     The name of the target WAMP realm.
+            /// </param>
+            /// <param name="manager">
+            ///     The management actor for the target realm.
+            /// </param>
+            public Realm(string name, IActorRef manager)
             {
+                if (String.IsNullOrWhiteSpace(name))
+                    throw new ArgumentException("Argument cannot be null, empty, or entirely composed of whitespace: 'name'.", nameof(name));
+
                 if (manager == null)
                     throw new ArgumentNullException(nameof(manager));
 
+                Name = name;
                 Manager = manager;
             }
 
+            /// <summary>
+            ///     The name of the target WAMP realm.
+            /// </summary>
+            public string Name { get; }
+            
+            /// <summary>
+            ///     The management actor for the target realm.
+            /// </summary>
             public IActorRef Manager { get; }
         }
     }
