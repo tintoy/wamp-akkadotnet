@@ -31,9 +31,9 @@ namespace Akka.Wamp.Actors
                 IActorRef serverManager;
                 if (!_serverManagers.TryGetValue(create.BaseAddress, out serverManager))
                 {
-                    serverManager = Context.ActorOf(
-                        Props.Create<WampServerManager>()
-                    );
+                    serverManager = Context.ActorOf(Props.Create(
+                        () => new WampServerManager(create.BaseAddress)
+                    ));
                     _serverManagers.Add(create.BaseAddress, serverManager);
                 }
 
