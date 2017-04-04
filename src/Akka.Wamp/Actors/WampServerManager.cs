@@ -2,10 +2,12 @@ using Akka.Actor;
 using Akka.Event;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using WampSharp.V2.Realm;
 
 namespace Akka.Wamp.Actors
 {
+    using System.Collections.Immutable;
     using Messages;
     using Server;
 
@@ -38,10 +40,21 @@ namespace Akka.Wamp.Actors
         ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
 
         /// <summary>
+        ///     The names of all realms hosted by the WAMP server.
+        /// </summary>
+        IEnumerable<string> HostedRealmNames => _realmManagers.Keys.OrderBy(name => name);
+
+        /// <summary>
         ///     Behaviour for when the server is running.
         /// </summary>
         void Running()
         {
+            Receive<GetRealmNames>(getRealm =>
+            {
+                Sender.Tell(new RealmNames(
+                    names: ImmutableList.CreateRange(HostedRealmNames)
+                ));
+            });
             Receive<GetRealm>(getRealm =>
             {
                 IActorRef realmManager = GetOrCreateRealm(getRealm.Realm);
@@ -219,6 +232,24 @@ namespace Akka.Wamp.Actors
         }
 
         /// <summary>
+        ///     Request the names of all WAMP realms hosted by the server.
+        /// </summary>
+        public class GetRealmNames
+        {
+            /// <summary>
+            ///     The singleton instance of the <see cref="GetRealmNames"/> message.
+            /// </summary>
+            public static GetRealmNames Instance = new GetRealmNames();
+
+            /// <summary>
+            ///     Create a new <see cref="GetRealmNames"/> message.
+            /// </summary>
+            GetRealmNames()
+            {    
+            }
+        }
+
+        /// <summary>
         ///     The management actor for a WAMP realm.
         /// </summary>
         public class Realm
@@ -253,6 +284,31 @@ namespace Akka.Wamp.Actors
             ///     The management actor for the target realm.
             /// </summary>
             public IActorRef Manager { get; }
+        }
+
+        /// <summary>
+        ///     The names of all WAMP realms hosted by the server.
+        /// </summary>
+        public class RealmNames
+        {
+            /// <summary>
+            ///     Create a new <see cref="RealmNames"/> message.
+            /// </summary>
+            /// <param name="names">
+            ///     The name of the hosted WAMP realms.
+            /// </param>
+            public RealmNames(ImmutableList<string> names)
+            {
+                if (names == null)
+                    throw new ArgumentNullException(nameof(names));
+                
+                Names = names;
+            }
+
+            /// <summary>
+            ///     The name of the target WAMP realm.
+            /// </summary>
+            public ImmutableList<string> Names { get; }
         }
     }
 }
