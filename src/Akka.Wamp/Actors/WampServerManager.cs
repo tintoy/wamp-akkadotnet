@@ -183,6 +183,16 @@ namespace Akka.Wamp.Actors
             return realmManager;
         }
 
+        public static Props Create(Uri baseAddress)
+        {
+            if (baseAddress == null)
+                throw new ArgumentNullException(nameof(baseAddress));
+
+            return Props.Create(
+                () => new WampServerManager(baseAddress)
+            );
+        }
+
         /// <summary>
         ///     Request the management actor for a WAMP realm.
         /// </summary>
