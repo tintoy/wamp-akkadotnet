@@ -1,6 +1,7 @@
 using System;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using WampSharp.AspNetCore.WebSockets.Server;
 using WampSharp.Binding;
@@ -160,6 +161,7 @@ namespace Akka.Wamp.Server
                 throw new ArgumentNullException(nameof(wampHost));
 
             return new WebHostBuilder()
+                .UseKestrel()
                 .UseUrls(
                     BaseAddress
                         .GetComponents(UriComponents.SchemeAndServer, UriFormat.Unescaped)
@@ -169,7 +171,11 @@ namespace Akka.Wamp.Server
                 {
                     app.UseDeveloperExceptionPage();
 
-                    app.Map(BaseAddress.AbsolutePath, ws =>
+                    PathString wsPath = BaseAddress.AbsolutePath;
+                    if (wsPath == "/")
+                        wsPath = PathString.Empty;
+
+                    app.Map(wsPath, ws =>
                     {
                         ws.UseWebSockets(new WebSocketOptions
                         {

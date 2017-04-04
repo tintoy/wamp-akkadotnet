@@ -2,12 +2,12 @@ using Akka.Actor;
 using Akka.Event;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using WampSharp.V2.Realm;
 
 namespace Akka.Wamp.Actors
 {
-    using System.Collections.Immutable;
     using Messages;
     using Server;
 
@@ -40,20 +40,17 @@ namespace Akka.Wamp.Actors
         ILoggingAdapter Log { get; } = Logging.GetLogger(Context);
 
         /// <summary>
-        ///     The names of all realms hosted by the WAMP server.
-        /// </summary>
-        IEnumerable<string> HostedRealmNames => _realmManagers.Keys.OrderBy(name => name);
-
-        /// <summary>
         ///     Behaviour for when the server is running.
         /// </summary>
         void Running()
         {
             Receive<GetRealmNames>(getRealm =>
             {
-                Sender.Tell(new RealmNames(
-                    names: ImmutableList.CreateRange(HostedRealmNames)
-                ));
+                Sender.Tell(
+                    new RealmNames(ImmutableList.CreateRange(
+                        _realmManagers.Keys.OrderBy(name => name)
+                    ))
+                );
             });
             Receive<GetRealm>(getRealm =>
             {
