@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Akka" Version="1.2.0-alpha18" />
+    <PackageReference Include="Akka" Version="1.3.0-*" />
 
     <PackageReference Include="Microsoft.AspNetCore" Version="1.1.1" />
     <PackageReference Include="WampSharp.AspNetCore.WebSockets.Server" Version="1.2.4.18-beta" />
